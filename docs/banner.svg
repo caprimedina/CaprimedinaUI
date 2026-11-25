@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-label="CaprimedinaUI">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0a0e14"/>
+      <stop offset="55%" stop-color="#12161e"/>
+      <stop offset="100%" stop-color="#1a1410"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="45%" r="45%">
+      <stop offset="0%" stop-color="#d4af37" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#d4af37" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="textGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect width="1280" height="640" fill="url(#glow)"/>
+
+  <!-- Faint background rings -->
+  <g fill="none" stroke="#d4af37" stroke-width="1.2">
+    <circle cx="200" cy="120" r="150" opacity="0.07"/>
+    <circle cx="1100" cy="520" r="210" opacity="0.06"/>
+    <circle cx="1040" cy="110" r="90" opacity="0.09"/>
+    <circle cx="260" cy="540" r="120" opacity="0.05"/>
+    <circle cx="640" cy="320" r="300" opacity="0.04"/>
+    <circle cx="640" cy="320" r="420" opacity="0.03"/>
+  </g>
+
+  <!-- Center ring + disc -->
+  <circle cx="640" cy="290" r="150" fill="#0a0e14" stroke="#d4af37" stroke-width="3" opacity="0.95"/>
+  <circle cx="640" cy="290" r="140" fill="none" stroke="#8c7338" stroke-width="1" opacity="0.6"/>
+
+  <!-- Title -->
+  <text x="640" y="305" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="74" font-weight="700" fill="#d4af37" filter="url(#textGlow)" letter-spacing="2">CaprimedinaUI</text>
+
+  <!-- Subtitle -->
+  <text x="640" y="360" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="22" fill="#e8e0d0" opacity="0.85" letter-spacing="1">Interfaz táctil para World of Warcraft 3.3.5a en Android y Winlator</text>
+
+  <!-- Divider line -->
+  <line x1="490" y1="385" x2="790" y2="385" stroke="#8c7338" stroke-width="1" opacity="0.7"/>
+
+  <!-- Badges -->
+  <g font-family="Arial, Helvetica, sans-serif" font-size="15" font-weight="600" fill="#e8e0d0">
+    <!-- WoW 3.3.5a -->
+    <rect x="430" y="520" rx="14" ry="14" width="118" height="30" fill="#1a1410" stroke="#d4af37" stroke-width="1.2"/>
+    <text x="489" y="540" text-anchor="middle">WoW 3.3.5a</text>
+    <!-- Winlator -->
+    <rect x="568" y="520" rx="14" ry="14" width="110" height="30" fill="#1a1410" stroke="#d4af37" stroke-width="1.2"/>
+    <text x="623" y="540" text-anchor="middle">Winlator</text>
+    <!-- MIT -->
+    <rect x="698" y="520" rx="14" ry="14" width="60" height="30" fill="#1a1410" stroke="#d4af37" stroke-width="1.2"/>
+    <text x="728" y="540" text-anchor="middle">MIT</text>
+  </g>
+
+  <!-- Footer small note -->
+  <text x="640" y="585" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="12" fill="#8c7338" opacity="0.9">github.com/caprimedina/CaprimedinaUI</text>
+</svg>

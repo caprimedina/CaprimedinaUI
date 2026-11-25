@@ -1,0 +1,25 @@
+# Sistema
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Editores
+.vscode/
+.idea/
+*.swp
+*~
+
+# Archivos temporales y copias
+*.bak
+*.back
+*.tmp
+*.log
+
+# Empaquetado y copias locales
+*.zip
+dist/
+_dev/
+
+# Datos locales del juego
+WTF/
+Logs/

@@ -1,0 +1,25 @@
+## Interface: 30300
+## Title: CaprimedinaUI
+## Title-esES: CaprimedinaUI
+## Notes: Interfaz tactil de Caprimedina para jugar World of Warcraft 3.3.5a en Android con Winlator.
+## Notes-esES: Interfaz tactil de Caprimedina para jugar World of Warcraft 3.3.5a en Android con Winlator.
+## Author: Caprimedina
+## Version: 5.0.0
+## SavedVariables: CaprimedinaUIDB
+## SavedVariablesPerCharacter: SmartClickDB
+## X-Category: Interface Enhancements
+## IconTexture: Interface\AddOns\CaprimedinaUI\texturas\mira
+
+core.lua
+config\config.lua
+ui.lua
+modulos\barra.lua
+modulos\bag.lua
+modulos\SmartClick.lua
+modulos\vida.lua
+modulos\teclado.lua
+modulos\chat.lua
+modulos\ventanas.lua
+modulos\escala.lua
+botones\botones.lua
+botones\dpad.lua

@@ -1,0 +1,56 @@
+name: Reporte de error
+description: Informa de un fallo de CaprimedinaUI
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por tomarte el tiempo de reportar. Rellena los campos para que
+        pueda reproducirlo.
+  - type: input
+    id: version
+    attributes:
+      label: Versión de CaprimedinaUI
+      description: Aparece en el menú del addon o en el archivo .toc
+      placeholder: "5.0.0"
+    validations:
+      required: true
+  - type: input
+    id: entorno
+    attributes:
+      label: Entorno
+      description: Dispositivo, Android, versión de Winlator (o Windows)
+      placeholder: "Ej.: Redmi Note 12, Android 13, Winlator 7.1"
+    validations:
+      required: true
+  - type: textarea
+    id: descripcion
+    attributes:
+      label: Descripción del problema
+      description: Qué ocurre y qué esperabas que ocurriera
+    validations:
+      required: true
+  - type: textarea
+    id: pasos
+    attributes:
+      label: Pasos para reproducirlo
+      placeholder: |
+        1. Abrir ...
+        2. Pulsar ...
+        3. Ver ...
+    validations:
+      required: true
+  - type: textarea
+    id: capturas
+    attributes:
+      label: Capturas o vídeo
+      description: Arrastra aquí imágenes si ayudan a ver el problema
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: Información adicional
+      description: Errores de Lua (con /console scriptErrors 1), otros addons, etc.
+    validations:
+      required: false

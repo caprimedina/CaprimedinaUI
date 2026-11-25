@@ -186,8 +186,6 @@ CaprimedinaUI/
 ## 🛠️ Solución de problemas
 
 - **No aparece en la lista de addons:** revisa que no haya una carpeta de más (`CaprimedinaUI/CaprimedinaUI/`). La ruta debe terminar en `CaprimedinaUI/CaprimedinaUI.toc`.
-- **Una ventana se ve pequeña o enorme:** prueba `/ventanas reset` y luego `/ventanas max 2.2`.
-- **Quiero ver qué está pasando con las ventanas:** `/ventanas dump` y revisa `CaprimedinaUI.lua` en `SavedVariables` tras un `/reload`.
 - **Restablecer todo:** `/capribarra reset`, `/botones reset`, `/ventanas reset` o borra el archivo de `SavedVariables` con el juego cerrado.
 - **Errores de Lua:** activa `/console scriptErrors 1` y adjunta el texto al reportar.
 

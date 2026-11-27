@@ -33,7 +33,7 @@ botones\dpad.lua
 | `ui.lua` | HUD principal, anclajes arrastrables, modo edición (`/capri`), minimapa, bolitas de jugador/objetivo, menú contextual de escalas y barra de experiencia. |
 | `config/config.lua` | Menú de configuración y botón del minimapa (mover, click para abrir). |
 | `modulos/barra.lua` | Barras de acción curvas, bindings (`/capribind`), brillo de pulsación. |
-| `modulos/bag.lua` | Bolsas y banco personalizados (incluye `BankFrame` propio). |
+| `modulos/bag.lua` | Bolsas y banco personalizados (incluye `BankFrame` propio y la piel de bolsa de la mochila y del banco). |
 | `modulos/SmartClick.lua` | Clic inteligente y cámara automática para pantallas táctiles. |
 | `modulos/vida.lua` | Texto de vida/maná con porcentaje en combate. |
 | `modulos/teclado.lua` | Teclado virtual en pantalla (`/vkb`). |

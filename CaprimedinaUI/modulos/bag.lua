@@ -5,7 +5,7 @@ local C = _G.CapriUI
 CapriHighlightRegistry = {}
 
 local KEYRING_ID = -2
-local mainBagsList = { 0, 1, 2, 3, 4, KEYRING_ID }
+local mainBagsList = { 0, 1, 2, 3, 4 }
 local bankBagsList = { 5, 6, 7, 8, 9, 10, 11 }
 
 local currentScale = 1.0
@@ -13,6 +13,9 @@ local currentCols = 10
 local showBagTitles = true
 local isBagLocked = false
 local showSideBags = true
+local keyringPage = false
+local KR_MAX = 32
+local btnKeyring
 
 local bankScale = 1.0
 local bankCols = 10
@@ -53,11 +56,90 @@ FixPopupStrata("CoinPickupFrame")
 FixPopupStrata("StackSplitFrame")
 FixPopupStrata("LootFrame")
 
+-- ======================================================================
+-- Utilidades de piel "bolsa de cuero", compartidas por la mochila y el banco.
+-- Los bordes se dibujan a mano (4 esquinas fijas + 4 lados estirados) porque
+-- el cliente 3.3.5 parte los edgeFile de SetBackdrop en 8 tiras.
+-- ======================================================================
+local BAG_MEDIA = C.media
+
+local function CrearTextura(parent, capa, archivo)
+    local t = parent:CreateTexture(nil, capa)
+    t:SetTexture(BAG_MEDIA .. archivo)
+    return t
+end
+
+local function CrearDegradado(parent, capa, vertical, r1, g1, b1, a1, r2, g2, b2, a2)
+    -- Rampa pregrabada: el cliente 3.3.5 no tiene un SetGradientAlpha fiable y
+    -- podia tenirlo de azul. La textura ya trae el alfa; el color va por vertice.
+    local t = parent:CreateTexture(nil, capa)
+    t:SetTexture(BAG_MEDIA .. (vertical and "degradado_v" or "degradado_h"))
+    t:SetVertexColor((r1 + r2) * 0.5, (g1 + g2) * 0.5, (b1 + b2) * 0.5, math.max(a1, a2))
+    if a1 < a2 then
+        if vertical then
+            t:SetTexCoord(0, 1, 1, 0)
+        else
+            t:SetTexCoord(1, 0, 0, 1)
+        end
+    end
+    return t
+end
+
+local function CrearBorde9(parent, textura, tamTex, esquina, capa)
+    local c = esquina / tamTex
+    local px = 1 / tamTex
+    local b = {}
+    local function nueva(l, r, t, abajo)
+        local x = parent:CreateTexture(nil, capa or "BORDER")
+        x:SetTexture(textura)
+        x:SetTexCoord(l, r, t, abajo)
+        b[#b + 1] = x
+        return x
+    end
+    b.tl = nueva(0, c, 0, c)
+    b.tr = nueva(1 - c, 1, 0, c)
+    b.bl = nueva(0, c, 1 - c, 1)
+    b.br = nueva(1 - c, 1, 1 - c, 1)
+    b.izq = nueva(0, c, 0.5, 0.5 + px)
+    b.der = nueva(1 - c, 1, 0.5, 0.5 + px)
+    b.sup = nueva(0.5, 0.5 + px, 0, c)
+    b.inf = nueva(0.5, 0.5 + px, 1 - c, 1)
+    return b
+end
+
+local function ColocarBorde9(b, w, h, e)
+    if not b then return end
+    b.tl:ClearAllPoints(); b.tl:SetPoint("TOPLEFT", 0, 0); b.tl:SetSize(e, e)
+    b.tr:ClearAllPoints(); b.tr:SetPoint("TOPRIGHT", 0, 0); b.tr:SetSize(e, e)
+    b.bl:ClearAllPoints(); b.bl:SetPoint("BOTTOMLEFT", 0, 0); b.bl:SetSize(e, e)
+    b.br:ClearAllPoints(); b.br:SetPoint("BOTTOMRIGHT", 0, 0); b.br:SetSize(e, e)
+    b.sup:ClearAllPoints(); b.sup:SetPoint("TOPLEFT", e, 0); b.sup:SetPoint("TOPRIGHT", -e, 0); b.sup:SetHeight(e)
+    b.inf:ClearAllPoints(); b.inf:SetPoint("BOTTOMLEFT", e, 0); b.inf:SetPoint("BOTTOMRIGHT", -e, 0); b.inf:SetHeight(e)
+    b.izq:ClearAllPoints(); b.izq:SetPoint("TOPLEFT", 0, -e); b.izq:SetPoint("BOTTOMLEFT", 0, e); b.izq:SetWidth(e)
+    b.der:ClearAllPoints(); b.der:SetPoint("TOPRIGHT", 0, -e); b.der:SetPoint("BOTTOMRIGHT", 0, e); b.der:SetWidth(e)
+end
+
+local function StyleLeatherButton(btn)
+    if not btn then return end
+    btn.defaultColor = { 0.16, 0.11, 0.07, 0.92 }
+    btn:SetBackdropColor(0.16, 0.11, 0.07, 0.92)
+    if btn.text then btn.text:SetTextColor(1, 0.86, 0.48) end
+    btn:SetScript("OnEnter", function(self) self:SetBackdropColor(0.28, 0.19, 0.11, 0.95) end)
+    btn:SetScript("OnLeave", function(self) self:SetBackdropColor(unpack(self.defaultColor)) end)
+    btn:SetScript("OnMouseDown", function(self) self:SetBackdropColor(0.42, 0.30, 0.17, 1) end)
+    btn:SetScript("OnMouseUp", function(self)
+        if self:IsMouseOver() then
+            self:SetBackdropColor(0.28, 0.19, 0.11, 0.95)
+        else
+            self:SetBackdropColor(unpack(self.defaultColor))
+        end
+    end)
+end
+
 
 local frame = CreateFrame("Frame", "UnifiedBagFrame", UIParent)
 tinsert(UISpecialFrames, "UnifiedBagFrame")
 frame:SetPoint("CENTER", 100, 0)
-C.StyleWindow(frame)
 frame:SetFrameStrata("HIGH")
 frame:SetFrameLevel(10)
 frame:EnableMouse(true)
@@ -96,6 +178,9 @@ frame:SetScript("OnDragStop", function(self)
 end)
 
 frame:SetScript("OnHide", function()
+    -- Al cerrar la mochila se cierra tambien la pagina del llavero.
+    keyringPage = false
+    if CaprimedinaUIDB then CaprimedinaUIDB.showKeyringPage = false end
     for i = 0, 4 do
         CloseBag(i)
     end
@@ -118,32 +203,267 @@ end)
 
 frame:Hide()
 
-local dividerLine = frame:CreateTexture(nil, "ARTWORK")
-dividerLine:SetTexture("Interface\\Buttons\\WHITE8X8")
-dividerLine:SetVertexColor(0.2, 0.22, 0.25, 0.8)
-dividerLine:SetWidth(2)
-dividerLine:Hide()
 
 
 local pdWidth = 220
 local pdHeight = 310
+
+-- ======================================================================
+-- Piel de "bolsa grande" para la mochila.
+-- Mismo cuero, solapa, asa y costuras que el banco; la ventana de vestuario
+-- y los paneles de profesion quedan enmarcados dentro de la bolsa.
+-- ======================================================================
+local BAG_FLAP_TOP = 0
+local BAG_FLAP_H = 62
+local BAG_SIDE_PAD = 30
+local BAG_BOTTOM_PAD = 56
+
+local bagArt = { costuras = {}, costurasFlap = {}, costuraSeam = {} }
+
+frame:SetBackdrop({
+    bgFile   = BAG_MEDIA .. "bolsa_cuerpo",
+    tile     = true,
+    tileSize = 128,
+})
+frame:SetBackdropColor(1, 1, 1, 1)
+local bagBorde = CrearBorde9(frame, BAG_MEDIA .. "bolsa_borde", 128, 32)
+
+bagArt.luz = CrearTextura(frame, "ARTWORK", "bolsa_luz")
+bagArt.luzSup = CrearDegradado(frame, "ARTWORK", true, 1, 0.93, 0.76, 0.08, 1, 0.93, 0.76, 0)
+bagArt.sombraInf = CrearDegradado(frame, "ARTWORK", true, 0, 0, 0, 0, 0, 0, 0, 0.34)
+bagArt.sombraIzq = CrearDegradado(frame, "ARTWORK", false, 0, 0, 0, 0.30, 0, 0, 0, 0)
+bagArt.sombraDer = CrearDegradado(frame, "ARTWORK", false, 0, 0, 0, 0, 0, 0, 0, 0.30)
+bagArt.sombraSolapa = CrearDegradado(frame, "ARTWORK", true, 0, 0, 0, 0.62, 0, 0, 0, 0)
+bagArt.asa = CrearTextura(frame, "ARTWORK", "bolsa_asa")
+
+bagArt.remacheIzq = CrearTextura(frame, "OVERLAY", "remache")
+bagArt.remacheIzq:SetSize(16, 16)
+bagArt.remacheDer = CrearTextura(frame, "OVERLAY", "remache")
+bagArt.remacheDer:SetSize(16, 16)
+
+-- Solapa con el titulo.
+local bagFlap = CreateFrame("Frame", "UnifiedBagFlap", frame)
+bagFlap:SetFrameStrata(frame:GetFrameStrata())
+bagFlap:SetFrameLevel(frame:GetFrameLevel() + 2)
+bagFlap:SetBackdrop({
+    bgFile   = BAG_MEDIA .. "bolsa_solapa_cuerpo",
+    tile     = true,
+    tileSize = 128,
+})
+bagFlap:SetBackdropColor(1, 1, 1, 1)
+local flapBorde = CrearBorde9(bagFlap, BAG_MEDIA .. "bolsa_solapa_borde", 64, 16)
+
+local title = bagFlap:CreateFontString("UnifiedBagTitle", "OVERLAY")
+C.SetOutlineFont(title, 16)
+title:SetPoint("TOP", bagFlap, "TOP", 0, -14)
+title:SetTextColor(1, 0.88, 0.52)
+title:SetShadowColor(0, 0, 0, 0.9)
+title:SetShadowOffset(1, -1)
+title:SetText("MOCHILA CAPRIMEDINA")
+
+-- Hebilla de la solapa.
+bagArt.hebilla = CrearTextura(bagFlap, "ARTWORK", "bolsa_hebilla")
+bagArt.hebilla:SetPoint("BOTTOM", bagFlap, "BOTTOM", 0, -6)
+
+-- Placa del dinero (abajo a la derecha, como un bolsillo cosido).
+local bagMoneyPlaque = CreateFrame("Frame", "UnifiedBagMoneyPlaque", frame)
+bagMoneyPlaque:SetFrameStrata(frame:GetFrameStrata())
+bagMoneyPlaque:SetFrameLevel(frame:GetFrameLevel() + 3)
+bagMoneyPlaque:SetSize(190, 34)
+bagMoneyPlaque:SetBackdrop({
+    bgFile   = BAG_MEDIA .. "bolsa_solapa_cuerpo",
+    tile     = true,
+    tileSize = 128,
+})
+bagMoneyPlaque:SetBackdropColor(0.95, 0.91, 0.86, 1)
+local moneyBorde = CrearBorde9(bagMoneyPlaque, BAG_MEDIA .. "bolsa_borde_peq", 64, 16)
+ColocarBorde9(moneyBorde, 190, 34, 16)
+
+-- Separador entre el vestuario y la rejilla de bolsas.
+local dividerLine = frame:CreateTexture("UnifiedBagDivider", "ARTWORK")
+dividerLine:SetTexture("Interface\\Buttons\\WHITE8X8")
+dividerLine:SetVertexColor(0.03, 0.02, 0.01, 0.75)
+dividerLine:SetWidth(1)
+dividerLine:Hide()
+
+local function LayoutBagSkin()
+    local w = frame:GetWidth()
+    local h = frame:GetHeight()
+    if not w or not h or w < 80 or h < 80 then return end
+
+    local flapH = BAG_FLAP_H
+    local flapBottom = BAG_FLAP_TOP + flapH
+    local flapW = w - 4
+
+    bagFlap:ClearAllPoints()
+    bagFlap:SetPoint("TOPLEFT", frame, "TOPLEFT", 2, -BAG_FLAP_TOP)
+    bagFlap:SetSize(flapW, flapH)
+    ColocarBorde9(bagBorde, w, h, 32)
+    ColocarBorde9(flapBorde, flapW, flapH, 16)
+
+    local tam = 16
+    if w < 300 then
+        tam = 13
+    elseif w < 420 then
+        tam = 15
+    elseif w > 700 then
+        tam = 18
+    end
+    C.SetOutlineFont(title, tam)
+    if keyringPage then
+        title:SetText("LLAVERO")
+    else
+        title:SetText(w < 330 and "MOCHILA" or "MOCHILA CAPRIMEDINA")
+    end
+    title:ClearAllPoints()
+    title:SetPoint("TOP", bagFlap, "TOP", 0, -14)
+
+    -- Asa: mantiene su forma y se apoya detras de la solapa.
+    local asaW = math.floor(math.min(math.max(flapW * 0.55, 140), 300))
+    local asaH = math.floor(asaW * 0.42)
+    bagArt.asa:SetSize(asaW, asaH)
+    bagArt.asa:ClearAllPoints()
+    bagArt.asa:SetPoint("BOTTOM", frame, "TOP", 0, -(BAG_FLAP_TOP + 22))
+
+    bagArt.sombraSolapa:ClearAllPoints()
+    bagArt.sombraSolapa:SetPoint("TOPLEFT", frame, "TOPLEFT", 24, -(flapBottom + 1))
+    bagArt.sombraSolapa:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -24, -(flapBottom + 1))
+    bagArt.sombraSolapa:SetHeight(18)
+
+    local cuerpoSup = flapBottom + 4
+    local cuerpoInf = 30
+    local pad = BAG_SIDE_PAD - 4
+
+    bagArt.luzSup:ClearAllPoints()
+    bagArt.luzSup:SetPoint("TOPLEFT", frame, "TOPLEFT", pad, -(cuerpoSup + 2))
+    bagArt.luzSup:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -pad, -(cuerpoSup + 2))
+    bagArt.luzSup:SetHeight(80)
+
+    bagArt.luz:ClearAllPoints()
+    bagArt.luz:SetPoint("TOPLEFT", frame, "TOPLEFT", pad, -(cuerpoSup + 4))
+    bagArt.luz:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -pad, cuerpoInf + 22)
+
+    bagArt.sombraInf:ClearAllPoints()
+    bagArt.sombraInf:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", pad, cuerpoInf)
+    bagArt.sombraInf:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -pad, cuerpoInf)
+    bagArt.sombraInf:SetHeight(110)
+
+    bagArt.sombraIzq:ClearAllPoints()
+    bagArt.sombraIzq:SetPoint("TOPLEFT", frame, "TOPLEFT", pad, -(cuerpoSup + 2))
+    bagArt.sombraIzq:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", pad, cuerpoInf)
+    bagArt.sombraIzq:SetWidth(30)
+
+    bagArt.sombraDer:ClearAllPoints()
+    bagArt.sombraDer:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -pad, -(cuerpoSup + 2))
+    bagArt.sombraDer:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -pad, cuerpoInf)
+    bagArt.sombraDer:SetWidth(30)
+
+    bagArt.remacheIzq:ClearAllPoints()
+    bagArt.remacheIzq:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 28, 14)
+    bagArt.remacheDer:ClearAllPoints()
+    bagArt.remacheDer:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -28, 14)
+
+    -- Costuras laterales del cuerpo.
+    local paso = 16
+    local yIni = cuerpoSup + 10
+    local yFin = h - 30
+    local cantidad = math.max(0, math.min(60, math.floor((yFin - yIni) / paso)))
+    local total = cantidad * 2
+    for i = 1, total do
+        local t = bagArt.costuras[i]
+        if not t then
+            t = CrearTextura(frame, "OVERLAY", "puntada_v")
+            t:SetVertexColor(1, 1, 1, 0.5)
+            bagArt.costuras[i] = t
+        end
+        t:Show()
+    end
+    for i = total + 1, #bagArt.costuras do
+        bagArt.costuras[i]:Hide()
+    end
+    for i = 1, cantidad do
+        local y = -(yIni + (i - 1) * paso)
+        local izq = bagArt.costuras[i]
+        izq:ClearAllPoints()
+        izq:SetPoint("TOPLEFT", frame, "TOPLEFT", 17, y)
+        local der = bagArt.costuras[cantidad + i]
+        der:ClearAllPoints()
+        der:SetPoint("TOPLEFT", frame, "TOPLEFT", w - 25, y)
+    end
+
+    -- Costuras de la solapa.
+    local pasoFlap = 14
+    local xIni = 22
+    local xFin = flapW - 22
+    local cantFlap = math.max(0, math.floor((xFin - xIni) / pasoFlap))
+    for i = 1, cantFlap do
+        local t = bagArt.costurasFlap[i]
+        if not t then
+            t = CrearTextura(bagFlap, "OVERLAY", "puntada")
+            t:SetVertexColor(1, 1, 1, 0.9)
+            bagArt.costurasFlap[i] = t
+        end
+        t:Show()
+        t:ClearAllPoints()
+        t:SetPoint("BOTTOMLEFT", bagFlap, "BOTTOMLEFT", xIni + (i - 1) * pasoFlap, 11)
+    end
+    for i = cantFlap + 1, #bagArt.costurasFlap do
+        bagArt.costurasFlap[i]:Hide()
+    end
+
+    -- Costura vertical entre el vestuario y la rejilla.
+    local xSeam = BAG_SIDE_PAD + pdWidth + 12
+    if showSideBags then
+        dividerLine:Show()
+        dividerLine:ClearAllPoints()
+        dividerLine:SetPoint("TOPLEFT", frame, "TOPLEFT", xSeam, -(flapBottom + 6))
+        dividerLine:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", xSeam, 26)
+
+        local ySeamIni = flapBottom + 14
+        local ySeamFin = h - 34
+        local cantSeam = math.max(0, math.min(60, math.floor((ySeamFin - ySeamIni) / paso)))
+        for i = 1, cantSeam do
+            local t = bagArt.costuraSeam[i]
+            if not t then
+                t = CrearTextura(frame, "OVERLAY", "puntada_v")
+                t:SetVertexColor(1, 1, 1, 0.45)
+                bagArt.costuraSeam[i] = t
+            end
+            t:Show()
+            t:ClearAllPoints()
+            t:SetPoint("TOPLEFT", frame, "TOPLEFT", xSeam - 4, -(ySeamIni + (i - 1) * paso))
+        end
+        for i = cantSeam + 1, #bagArt.costuraSeam do
+            bagArt.costuraSeam[i]:Hide()
+        end
+    else
+        dividerLine:Hide()
+        for i = 1, #bagArt.costuraSeam do
+            bagArt.costuraSeam[i]:Hide()
+        end
+    end
+
+    -- Hebilla.
+    bagArt.hebilla:SetSize(40, 20)
+    bagArt.hebilla:ClearAllPoints()
+    bagArt.hebilla:SetPoint("BOTTOM", bagFlap, "BOTTOM", 0, -7)
+
+    -- Placa del dinero.
+    bagMoneyPlaque:ClearAllPoints()
+    bagMoneyPlaque:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 14)
+end
 
 UnifiedPaperDollPanel = CreateFrame("Frame", "UnifiedPaperDollPanel", frame)
 UnifiedPaperDollPanel:SetWidth(pdWidth)
 UnifiedPaperDollPanel:SetHeight(pdHeight)
 UnifiedPaperDollPanel:SetBackdrop({
     bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
     tile = false,
-    tileSize = 16,
-    edgeSize = 16,
-    insets = { left = 4, right = 4, top = 4, bottom = 4 },
 })
-UnifiedPaperDollPanel:SetBackdropColor(0, 0, 0, 0.75)
-UnifiedPaperDollPanel:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.8)
+UnifiedPaperDollPanel:SetBackdropColor(0.015, 0.012, 0.01, 0.9)
 UnifiedPaperDollPanel:Hide()
 
-local pdPadding = 4
+local pdPadding = 14
 local innerW = pdWidth - (pdPadding * 2)
 local innerH = pdHeight - (pdPadding * 2)
 
@@ -170,6 +490,18 @@ bgBR:SetWidth(innerW * (128/384))
 bgBR:SetHeight(innerH * 0.35)
 bgBR:SetTexCoord(0, 1, 0, 0.6)
 
+-- Marco de cuero del ventanal de vestuario.
+local pdBorde = CrearBorde9(UnifiedPaperDollPanel, BAG_MEDIA .. "bolsa_borde_peq", 64, 16)
+ColocarBorde9(pdBorde, pdWidth, pdHeight, 16)
+
+local pdRivetes = {}
+for _, punto in ipairs({ {"TOPLEFT", 5, -5}, {"TOPRIGHT", -15, -5}, {"BOTTOMLEFT", 5, 5}, {"BOTTOMRIGHT", -15, 5} }) do
+    local r = CrearTextura(UnifiedPaperDollPanel, "OVERLAY", "remache")
+    r:SetSize(10, 10)
+    r:SetPoint(punto[1], UnifiedPaperDollPanel, punto[1], punto[2], punto[3])
+    pdRivetes[#pdRivetes + 1] = r
+end
+
 local function UpdatePaperDollClassBackground()
     if not UnifiedPaperDollPanel then return end
     local _, raceEn = UnitRace("player")
@@ -189,13 +521,12 @@ local function UpdatePaperDollClassBackground()
         bgBL:Hide()
         bgBR:Hide()
     end
-    UnifiedPaperDollPanel:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.8)
 end
 
 UnifiedPaperDollModel = CreateFrame("PlayerModel", "UnifiedPaperDollModel", UnifiedPaperDollPanel)
 UnifiedPaperDollModel:SetFrameLevel(UnifiedPaperDollPanel:GetFrameLevel() + 1)
-UnifiedPaperDollModel:SetPoint("TOPLEFT", UnifiedPaperDollPanel, "TOPLEFT", 45, -10)
-UnifiedPaperDollModel:SetPoint("BOTTOMRIGHT", UnifiedPaperDollPanel, "BOTTOMRIGHT", -45, 20)
+UnifiedPaperDollModel:SetPoint("TOPLEFT", UnifiedPaperDollPanel, "TOPLEFT", 48, -18)
+UnifiedPaperDollModel:SetPoint("BOTTOMRIGHT", UnifiedPaperDollPanel, "BOTTOMRIGHT", -48, 26)
 UnifiedPaperDollModel:SetUnit("player")
 UnifiedPaperDollModel:SetRotation(0)
 UnifiedPaperDollModel:EnableMouse(true)
@@ -286,12 +617,12 @@ for i, slotName in ipairs(equipSlots) do
     btn.durability = durText
 
     if i <= 8 then
-        btn:SetPoint("TOPLEFT", UnifiedPaperDollPanel, "TOPLEFT", 8, -8 - (i - 1) * (pdSlotSize + pdSpacing))
+        btn:SetPoint("TOPLEFT", UnifiedPaperDollPanel, "TOPLEFT", 16, -16 - (i - 1) * (pdSlotSize + pdSpacing))
     elseif i <= 16 then
-        btn:SetPoint("TOPRIGHT", UnifiedPaperDollPanel, "TOPRIGHT", -8, -8 - (i - 9) * (pdSlotSize + pdSpacing))
+        btn:SetPoint("TOPRIGHT", UnifiedPaperDollPanel, "TOPRIGHT", -16, -16 - (i - 9) * (pdSlotSize + pdSpacing))
     else
         local bottomIndex = i - 16
-        btn:SetPoint("BOTTOMLEFT", UnifiedPaperDollPanel, "BOTTOMLEFT", 52 + (bottomIndex - 1) * (pdSlotSize + pdSpacing), 8)
+        btn:SetPoint("BOTTOMLEFT", UnifiedPaperDollPanel, "BOTTOMLEFT", 60 + (bottomIndex - 1) * (pdSlotSize + pdSpacing), 16)
     end
 
     btn:RegisterEvent("UNIT_INVENTORY_CHANGED")
@@ -357,64 +688,64 @@ end
 
 local bagSlotPanel = CreateFrame("Frame", "UnifiedBagSlotPanel", frame)
 bagSlotPanel:SetWidth(pdWidth)
-bagSlotPanel:SetHeight(45)
+bagSlotPanel:SetHeight(52)
 bagSlotPanel:SetBackdrop({
-    bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = false, tileSize = 16, edgeSize = 16,
-    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    bgFile   = BAG_MEDIA .. "bolsa_cuerpo",
+    tile     = true,
+    tileSize = 128,
 })
-bagSlotPanel:SetBackdropColor(0, 0, 0, 0.6)
-bagSlotPanel:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.8)
+bagSlotPanel:SetBackdropColor(0.92, 0.88, 0.84, 1)
 bagSlotPanel:SetFrameLevel(frame:GetFrameLevel() + 2)
+local bagSlotBorde = CrearBorde9(bagSlotPanel, BAG_MEDIA .. "bolsa_borde_peq", 64, 16)
+ColocarBorde9(bagSlotBorde, pdWidth, 52, 16)
 
 UnifiedProfSlots = {}
 
 UnifiedProfMainPanel = CreateFrame("Frame", "UnifiedProfMainPanel", frame)
 UnifiedProfMainPanel:SetWidth(pdWidth)
-UnifiedProfMainPanel:SetHeight(90)
+UnifiedProfMainPanel:SetHeight(100)
 UnifiedProfMainPanel:SetBackdrop({
-    bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = false, tileSize = 16, edgeSize = 16,
-    insets = { left = 4, right = 4, top = 4, bottom = 4 },
+    bgFile   = BAG_MEDIA .. "bolsa_solapa_cuerpo",
+    tile     = true,
+    tileSize = 128,
 })
-UnifiedProfMainPanel:SetBackdropColor(0, 0, 0, 0.6)
-UnifiedProfMainPanel:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.8)
+UnifiedProfMainPanel:SetBackdropColor(0.96, 0.92, 0.88, 1)
 UnifiedProfMainPanel:SetFrameLevel(frame:GetFrameLevel() + 2)
+local profMainBorde = CrearBorde9(UnifiedProfMainPanel, BAG_MEDIA .. "bolsa_borde_peq", 64, 16)
+ColocarBorde9(profMainBorde, pdWidth, 100, 16)
 UnifiedProfMainPanel:Hide()
 
 local headerMain = UnifiedProfMainPanel:CreateFontString(nil, "OVERLAY")
 C.SetOutlineFont(headerMain, 12)
-headerMain:SetPoint("TOPLEFT", UnifiedProfMainPanel, "TOPLEFT", 12, -12)
+headerMain:SetPoint("TOPLEFT", UnifiedProfMainPanel, "TOPLEFT", 16, -13)
 headerMain:SetText("Principales")
-headerMain:SetTextColor(1, 0.8, 0)
+headerMain:SetTextColor(1, 0.84, 0.34)
 
 UnifiedProfSecPanel = CreateFrame("Frame", "UnifiedProfSecPanel", frame)
 UnifiedProfSecPanel:SetWidth(pdWidth)
-UnifiedProfSecPanel:SetHeight(120)
+UnifiedProfSecPanel:SetHeight(130)
 UnifiedProfSecPanel:SetBackdrop({
-    bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-    edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    tile = false, tileSize = 16, edgeSize = 16,
-    insets = { left = 4, right = 4, top = 4, bottom = 4 },
+    bgFile   = BAG_MEDIA .. "bolsa_solapa_cuerpo",
+    tile     = true,
+    tileSize = 128,
 })
-UnifiedProfSecPanel:SetBackdropColor(0, 0, 0, 0.6)
-UnifiedProfSecPanel:SetBackdropBorderColor(0.5, 0.5, 0.5, 0.8)
+UnifiedProfSecPanel:SetBackdropColor(0.96, 0.92, 0.88, 1)
 UnifiedProfSecPanel:SetFrameLevel(frame:GetFrameLevel() + 2)
+local profSecBorde = CrearBorde9(UnifiedProfSecPanel, BAG_MEDIA .. "bolsa_borde_peq", 64, 16)
+ColocarBorde9(profSecBorde, pdWidth, 130, 16)
 UnifiedProfSecPanel:Hide()
 
 local headerSec = UnifiedProfSecPanel:CreateFontString(nil, "OVERLAY")
 C.SetOutlineFont(headerSec, 12)
-headerSec:SetPoint("TOPLEFT", UnifiedProfSecPanel, "TOPLEFT", 12, -12)
+headerSec:SetPoint("TOPLEFT", UnifiedProfSecPanel, "TOPLEFT", 16, -13)
 headerSec:SetText("Secundarias")
-headerSec:SetTextColor(1, 0.8, 0)
+headerSec:SetTextColor(1, 0.84, 0.34)
 
 local function CreateProfSlot(parent, index, yOffset)
     local pBtn = CreateFrame("Button", nil, parent)
-    pBtn:SetWidth(pdWidth - 20)
+    pBtn:SetWidth(pdWidth - 32)
     pBtn:SetHeight(24)
-    pBtn:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, yOffset)
+    pBtn:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, yOffset)
 
     local hl = pBtn:CreateTexture(nil, "HIGHLIGHT")
     hl:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
@@ -443,11 +774,31 @@ local function CreateProfSlot(parent, index, yOffset)
     UnifiedProfSlots[index] = { btn = pBtn, icon = icon, text = text }
 end
 
-CreateProfSlot(UnifiedProfMainPanel, 1, -30)
-CreateProfSlot(UnifiedProfMainPanel, 2, -58)
-CreateProfSlot(UnifiedProfSecPanel, 3, -30)
-CreateProfSlot(UnifiedProfSecPanel, 4, -58)
-CreateProfSlot(UnifiedProfSecPanel, 5, -86)
+CreateProfSlot(UnifiedProfMainPanel, 1, -32)
+CreateProfSlot(UnifiedProfMainPanel, 2, -60)
+CreateProfSlot(UnifiedProfSecPanel, 3, -32)
+CreateProfSlot(UnifiedProfSecPanel, 4, -60)
+CreateProfSlot(UnifiedProfSecPanel, 5, -88)
+
+-- Costura bajo el titulo de cada panel de profesion.
+local function CrearCosturaHorizontal(panel, y)
+    local surco = panel:CreateTexture(nil, "ARTWORK")
+    surco:SetTexture("Interface\\Buttons\\WHITE8X8")
+    surco:SetVertexColor(0.05, 0.03, 0.02, 0.8)
+    surco:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, y)
+    surco:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, y)
+    surco:SetHeight(1)
+
+    local brillo = panel:CreateTexture(nil, "ARTWORK")
+    brillo:SetTexture("Interface\\Buttons\\WHITE8X8")
+    brillo:SetVertexColor(0.85, 0.7, 0.4, 0.22)
+    brillo:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, y - 1)
+    brillo:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -16, y - 1)
+    brillo:SetHeight(1)
+end
+
+CrearCosturaHorizontal(UnifiedProfMainPanel, -28)
+CrearCosturaHorizontal(UnifiedProfSecPanel, -28)
 
 local function UpdateProfSlots()
     local primaries = {}
@@ -506,17 +857,14 @@ UnifiedProfMainPanel:SetScript("OnEvent", function()
     if UnifiedProfMainPanel:IsVisible() then UpdateProfSlots() end
 end)
 
-local btnToggleSideBags = C.CreateStyledButton(frame, "<", 20, 20)
-btnToggleSideBags:SetPoint("TOPLEFT", 10, -10)
+local btnToggleSideBags = C.CreateStyledButton(frame, "<", 22, 22)
+btnToggleSideBags:SetPoint("TOPLEFT", 12, -10)
+btnToggleSideBags:SetFrameLevel(frame:GetFrameLevel() + 4)
+StyleLeatherButton(btnToggleSideBags)
 
-local title = frame:CreateFontString(nil, "OVERLAY")
-C.SetOutlineFont(title, 14)
-title:SetPoint("TOPLEFT", 35, -12)
-title:SetText("MOCHILA CAPRIMEDINA")
-title:SetTextColor(1, 1, 1)
-
-local moneyFrame = CreateFrame("Frame", "UnifiedBagMoneyFrame", frame, "SmallMoneyFrameTemplate")
-moneyFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -5, 10)
+local moneyFrame = CreateFrame("Frame", "UnifiedBagMoneyFrame", bagMoneyPlaque, "SmallMoneyFrameTemplate")
+moneyFrame:SetFrameLevel(bagMoneyPlaque:GetFrameLevel() + 2)
+moneyFrame:SetPoint("CENTER", bagMoneyPlaque, "CENTER", 0, 0)
 
 local bankFrame = CreateFrame("Frame", "UnifiedBankFrame", UIParent)
 tinsert(UISpecialFrames, "UnifiedBankFrame")
@@ -551,20 +899,259 @@ end)
 bankFrame:SetScript("OnHide", function() CloseBankFrame() end)
 bankFrame:Hide()
 
+-- ======================================================================
+-- Piel de "bolsa grande" para el banco.
+-- Todas las texturas son propias y viven en texturas\bolsa_*.tga.
+-- El arte se recompone en LayoutBankSkin() cada vez que el marco cambia de
+-- tamano: asi la bolsa respeta el crecimiento en columnas/filas y la escala
+-- del banco sin deformar las esquinas ni el asa.
+-- ======================================================================
+local BANK_FLAP_TOP = 0
+local BANK_FLAP_H = 62
+local BANK_SIDE_PAD = 30
+local BANK_BOTTOM_PAD = 56
+
+local bankArt = { costuras = {}, costurasFlap = {} }
+
+-- Bolsillo lateral para las bolsas del banco (cuelga del lado izquierdo).
 local bankSlotPanel = CreateFrame("Frame", "UnifiedBankSlotPanel", bankFrame)
-bankSlotPanel:SetWidth(45)
-bankSlotPanel:SetPoint("TOPRIGHT", bankFrame, "TOPLEFT", 1, 0)
-C.StyleWindow(bankSlotPanel)
-bankSlotPanel:SetFrameLevel(bankFrame:GetFrameLevel() + 2)
+bankSlotPanel:SetWidth(72)
+bankSlotPanel:SetPoint("TOPRIGHT", bankFrame, "TOPLEFT", 10, -16)
+bankSlotPanel:SetFrameStrata(bankFrame:GetFrameStrata())
+bankSlotPanel:SetFrameLevel(bankFrame:GetFrameLevel() + 1)
+bankSlotPanel:SetBackdrop({
+    bgFile   = BAG_MEDIA .. "bolsa_cuerpo",
+    tile     = true,
+    tileSize = 128,
+})
+bankSlotPanel:SetBackdropColor(0.90, 0.86, 0.82, 1)
+local pocketBorde = CrearBorde9(bankSlotPanel, BAG_MEDIA .. "bolsa_borde_peq", 64, 16)
 
-local btnToggleBankSideBags = C.CreateStyledButton(bankFrame, "<", 20, 20)
-btnToggleBankSideBags:SetPoint("TOPLEFT", 10, -10)
+local pocketLabel = bankSlotPanel:CreateFontString("UnifiedBankPocketLabel", "OVERLAY")
+C.SetOutlineFont(pocketLabel, 11)
+pocketLabel:SetPoint("TOP", bankSlotPanel, "TOP", 0, -13)
+pocketLabel:SetText("BOLSAS")
+pocketLabel:SetTextColor(1, 0.86, 0.46)
 
-local bankTitle = bankFrame:CreateFontString(nil, "OVERLAY")
-C.SetOutlineFont(bankTitle, 14)
-bankTitle:SetPoint("TOPLEFT", 35, -12)
+local pocketRivet = CrearTextura(bankSlotPanel, "OVERLAY", "remache")
+pocketRivet:SetSize(12, 12)
+pocketRivet:SetPoint("BOTTOM", bankSlotPanel, "BOTTOM", 0, 8)
+
+local btnToggleBankSideBags = C.CreateStyledButton(bankFrame, "<", 22, 22)
+btnToggleBankSideBags:SetPoint("TOPLEFT", 12, -10)
+btnToggleBankSideBags:SetFrameLevel(bankFrame:GetFrameLevel() + 4)
+StyleLeatherButton(btnToggleBankSideBags)
+
+-- Cuerpo de la bolsa.
+bankFrame:SetBackdrop({
+    bgFile   = BAG_MEDIA .. "bolsa_cuerpo",
+    tile     = true,
+    tileSize = 128,
+})
+bankFrame:SetBackdropColor(1, 1, 1, 1)
+local bankBorde = CrearBorde9(bankFrame, BAG_MEDIA .. "bolsa_borde", 128, 32)
+
+-- Volumen: luz central, sombra inferior y de los costados.
+bankArt.luz = CrearTextura(bankFrame, "ARTWORK", "bolsa_luz")
+bankArt.luzSup = CrearDegradado(bankFrame, "ARTWORK", true, 1, 0.93, 0.76, 0.08, 1, 0.93, 0.76, 0)
+bankArt.sombraInf = CrearDegradado(bankFrame, "ARTWORK", true, 0, 0, 0, 0, 0, 0, 0, 0.34)
+bankArt.sombraIzq = CrearDegradado(bankFrame, "ARTWORK", false, 0, 0, 0, 0.30, 0, 0, 0, 0)
+bankArt.sombraDer = CrearDegradado(bankFrame, "ARTWORK", false, 0, 0, 0, 0, 0, 0, 0, 0.30)
+bankArt.sombraSolapa = CrearDegradado(bankFrame, "ARTWORK", true, 0, 0, 0, 0.62, 0, 0, 0, 0)
+
+-- Asa de cuerda: queda detras de la solapa.
+bankArt.asa = CrearTextura(bankFrame, "ARTWORK", "bolsa_asa")
+
+-- Remaches de las esquinas inferiores.
+bankArt.remacheIzq = CrearTextura(bankFrame, "OVERLAY", "remache")
+bankArt.remacheIzq:SetSize(16, 16)
+bankArt.remacheDer = CrearTextura(bankFrame, "OVERLAY", "remache")
+bankArt.remacheDer:SetSize(16, 16)
+
+-- Solapa superior con el titulo.
+local bankFlap = CreateFrame("Frame", "UnifiedBankFlap", bankFrame)
+bankFlap:SetFrameStrata(bankFrame:GetFrameStrata())
+bankFlap:SetFrameLevel(bankFrame:GetFrameLevel() + 2)
+bankFlap:SetBackdrop({
+    bgFile   = BAG_MEDIA .. "bolsa_solapa_cuerpo",
+    tile     = true,
+    tileSize = 128,
+})
+bankFlap:SetBackdropColor(1, 1, 1, 1)
+local flapBorde = CrearBorde9(bankFlap, BAG_MEDIA .. "bolsa_solapa_borde", 64, 16)
+
+local bankTitle = bankFlap:CreateFontString("UnifiedBankTitle", "OVERLAY")
+C.SetOutlineFont(bankTitle, 16)
+bankTitle:SetPoint("TOP", bankFlap, "TOP", 0, -14)
+bankTitle:SetTextColor(1, 0.88, 0.52)
+bankTitle:SetShadowColor(0, 0, 0, 0.9)
+bankTitle:SetShadowOffset(1, -1)
 bankTitle:SetText("BANCO CAPRIMEDINA")
-bankTitle:SetTextColor(1, 1, 1)
+
+-- Hebilla de la solapa.
+bankArt.hebilla = CrearTextura(bankFlap, "ARTWORK", "bolsa_hebilla")
+bankArt.hebilla:SetPoint("BOTTOM", bankFlap, "BOTTOM", 0, -6)
+
+-- Placa inferior para comprar ranuras.
+local bankPlaque = CreateFrame("Frame", "UnifiedBankPlaque", bankFrame)
+bankPlaque:SetFrameStrata(bankFrame:GetFrameStrata())
+bankPlaque:SetFrameLevel(bankFrame:GetFrameLevel() + 3)
+bankPlaque:SetBackdrop({
+    bgFile   = BAG_MEDIA .. "bolsa_solapa_cuerpo",
+    tile     = true,
+    tileSize = 128,
+})
+bankPlaque:SetBackdropColor(0.95, 0.91, 0.86, 1)
+local plaqueBorde = CrearBorde9(bankPlaque, BAG_MEDIA .. "bolsa_borde_peq", 64, 16)
+
+-- Costo de las ranuras con el mismo formato de monedas que la mochila.
+local bankCostMoney = CreateFrame("Frame", "UnifiedBankCostMoney", bankPlaque, "SmallMoneyFrameTemplate")
+bankCostMoney:SetFrameStrata(bankFrame:GetFrameStrata())
+bankCostMoney:SetFrameLevel(bankPlaque:GetFrameLevel() + 2)
+bankCostMoney:Hide()
+
+-- Recompone todo el arte segun el tamano actual del marco.
+local function LayoutBankSkin()
+    local w = bankFrame:GetWidth()
+    local h = bankFrame:GetHeight()
+    if not w or not h or w < 60 or h < 60 then return end
+
+    local flapH = BANK_FLAP_H
+    local flapBottom = BANK_FLAP_TOP + flapH
+    local flapW = w - 4
+
+    bankFlap:ClearAllPoints()
+    bankFlap:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", 2, -BANK_FLAP_TOP)
+    bankFlap:SetSize(flapW, flapH)
+    ColocarBorde9(bankBorde, w, h, 32)
+    ColocarBorde9(flapBorde, flapW, flapH, 16)
+
+    local tamTitulo = 16
+    if w < 260 then
+        tamTitulo = 13
+    elseif w < 380 then
+        tamTitulo = 15
+    elseif w > 620 then
+        tamTitulo = 18
+    end
+    C.SetOutlineFont(bankTitle, tamTitulo)
+    bankTitle:SetText(w < 300 and "BANCO" or "BANCO CAPRIMEDINA")
+    bankTitle:ClearAllPoints()
+    bankTitle:SetPoint("TOP", bankFlap, "TOP", 0, -14)
+
+    -- Asa: mantiene su forma 2:1 y se apoya detras de la solapa.
+    local asaW = math.floor(math.min(math.max(flapW * 0.60, 150), 320))
+    local asaH = math.floor(asaW * 0.42)
+    bankArt.asa:SetSize(asaW, asaH)
+    bankArt.asa:ClearAllPoints()
+    bankArt.asa:SetPoint("BOTTOM", bankFrame, "TOP", 0, -(BANK_FLAP_TOP + 22))
+
+    -- Sombra que proyecta la solapa.
+    bankArt.sombraSolapa:ClearAllPoints()
+    bankArt.sombraSolapa:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", 24, -(flapBottom + 1))
+    bankArt.sombraSolapa:SetPoint("TOPRIGHT", bankFrame, "TOPRIGHT", -24, -(flapBottom + 1))
+    bankArt.sombraSolapa:SetHeight(18)
+
+    local cuerpoSup = flapBottom + 4
+    local cuerpoInf = 34
+    local pad = BANK_SIDE_PAD - 4
+
+    bankArt.luzSup:ClearAllPoints()
+    bankArt.luzSup:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", pad, -(cuerpoSup + 2))
+    bankArt.luzSup:SetPoint("TOPRIGHT", bankFrame, "TOPRIGHT", -pad, -(cuerpoSup + 2))
+    bankArt.luzSup:SetHeight(80)
+
+    bankArt.luz:ClearAllPoints()
+    bankArt.luz:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", pad, -(cuerpoSup + 4))
+    bankArt.luz:SetPoint("BOTTOMRIGHT", bankFrame, "BOTTOMRIGHT", -pad, cuerpoInf + 22)
+
+    bankArt.sombraInf:ClearAllPoints()
+    bankArt.sombraInf:SetPoint("BOTTOMLEFT", bankFrame, "BOTTOMLEFT", pad, cuerpoInf)
+    bankArt.sombraInf:SetPoint("BOTTOMRIGHT", bankFrame, "BOTTOMRIGHT", -pad, cuerpoInf)
+    bankArt.sombraInf:SetHeight(110)
+
+    bankArt.sombraIzq:ClearAllPoints()
+    bankArt.sombraIzq:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", pad, -(cuerpoSup + 2))
+    bankArt.sombraIzq:SetPoint("BOTTOMLEFT", bankFrame, "BOTTOMLEFT", pad, cuerpoInf)
+    bankArt.sombraIzq:SetWidth(30)
+
+    bankArt.sombraDer:ClearAllPoints()
+    bankArt.sombraDer:SetPoint("TOPRIGHT", bankFrame, "TOPRIGHT", -pad, -(cuerpoSup + 2))
+    bankArt.sombraDer:SetPoint("BOTTOMRIGHT", bankFrame, "BOTTOMRIGHT", -pad, cuerpoInf)
+    bankArt.sombraDer:SetWidth(30)
+
+    -- Remaches inferiores.
+    bankArt.remacheIzq:ClearAllPoints()
+    bankArt.remacheIzq:SetPoint("BOTTOMLEFT", bankFrame, "BOTTOMLEFT", 28, 14)
+    bankArt.remacheDer:ClearAllPoints()
+    bankArt.remacheDer:SetPoint("BOTTOMRIGHT", bankFrame, "BOTTOMRIGHT", -28, 14)
+
+    -- Costuras verticales del cuerpo.
+    local paso = 16
+    local yIni = cuerpoSup + 10
+    local yFin = h - 30
+    local cantidad = math.max(0, math.min(60, math.floor((yFin - yIni) / paso)))
+    local total = cantidad * 2
+    for i = 1, total do
+        local t = bankArt.costuras[i]
+        if not t then
+            t = CrearTextura(bankFrame, "OVERLAY", "puntada_v")
+            t:SetVertexColor(1, 1, 1, 0.5)
+            bankArt.costuras[i] = t
+        end
+        t:Show()
+    end
+    for i = total + 1, #bankArt.costuras do
+        bankArt.costuras[i]:Hide()
+    end
+    for i = 1, cantidad do
+        local y = -(yIni + (i - 1) * paso)
+        local izq = bankArt.costuras[i]
+        izq:ClearAllPoints()
+        izq:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", 17, y)
+        local der = bankArt.costuras[cantidad + i]
+        der:ClearAllPoints()
+        der:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", w - 25, y)
+    end
+
+    -- Costuras de la solapa.
+    local pasoFlap = 14
+    local xIni = 22
+    local xFin = flapW - 22
+    local cantFlap = math.max(0, math.floor((xFin - xIni) / pasoFlap))
+    for i = 1, cantFlap do
+        local t = bankArt.costurasFlap[i]
+        if not t then
+            t = CrearTextura(bankFlap, "OVERLAY", "puntada")
+            t:SetVertexColor(1, 1, 1, 0.9)
+            bankArt.costurasFlap[i] = t
+        end
+        t:Show()
+        t:ClearAllPoints()
+        t:SetPoint("BOTTOMLEFT", bankFlap, "BOTTOMLEFT", xIni + (i - 1) * pasoFlap, 11)
+    end
+    for i = cantFlap + 1, #bankArt.costurasFlap do
+        bankArt.costurasFlap[i]:Hide()
+    end
+
+    -- Hebilla y placa de compra.
+    bankArt.hebilla:SetSize(40, 20)
+    bankArt.hebilla:ClearAllPoints()
+    bankArt.hebilla:SetPoint("BOTTOM", bankFlap, "BOTTOM", 0, -7)
+
+    local plW = math.floor(math.min(math.max(w * 0.62, 240), 380, w - 16))
+    bankPlaque:ClearAllPoints()
+    bankPlaque:SetPoint("BOTTOM", bankFrame, "BOTTOM", 0, 12)
+    bankPlaque:SetSize(plW, 42)
+    ColocarBorde9(plaqueBorde, plW, 42, 16)
+
+    -- Bolsillo lateral.
+    bankSlotPanel:ClearAllPoints()
+    bankSlotPanel:SetPoint("TOPRIGHT", bankFrame, "TOPLEFT", 10, -16)
+    bankSlotPanel:SetSize(72, 320)
+    ColocarBorde9(pocketBorde, 72, 320, 16)
+end       -- LayoutBankSkin()
+
 
 local function SetBagStrata(strata)
     currentBagStrata = strata
@@ -572,7 +1159,12 @@ local function SetBagStrata(strata)
     if frame then frame:SetFrameStrata(strata) end
     if bankFrame then bankFrame:SetFrameStrata(strata) end
     if bagSlotPanel then bagSlotPanel:SetFrameStrata(strata) end
+    if bagFlap then bagFlap:SetFrameStrata(strata) end
+    if bagMoneyPlaque then bagMoneyPlaque:SetFrameStrata(strata) end
+    if bankCostMoney then bankCostMoney:SetFrameStrata(strata) end
     if bankSlotPanel then bankSlotPanel:SetFrameStrata(strata) end
+    if bankFlap then bankFlap:SetFrameStrata(strata) end
+    if bankPlaque then bankPlaque:SetFrameStrata(strata) end
     if UnifiedProfMainPanel then UnifiedProfMainPanel:SetFrameStrata(strata) end
     if UnifiedProfSecPanel then UnifiedProfSecPanel:SetFrameStrata(strata) end
 
@@ -724,36 +1316,134 @@ local function ForceOpenBags(bagArray)
     end
 end
 
+-- ======================================================================
+-- Llavero como pagina aparte.
+-- ======================================================================
+local function LlaveroAbierto()
+    for i = 1, 15 do
+        local f = _G["ContainerFrame" .. i]
+        if f and f:IsVisible() and f:GetID() == KEYRING_ID then
+            return true
+        end
+    end
+    return false
+end
+
+local function CerrarLlavero()
+    if LlaveroAbierto() and ToggleKeyRing then
+        ToggleKeyRing()
+    end
+end
+
+local function ActualizarTecla()
+    if not btnKeyring then return end
+    local tex = btnKeyring:GetNormalTexture()
+    if tex then
+        if keyringPage then
+            tex:SetVertexColor(1, 0.82, 0.2)
+        else
+            tex:SetVertexColor(1, 1, 1)
+        end
+    end
+end
+
+local function CrearBotonLlavero(contenedor, slot)
+    if not contenedor or not contenedor.GetName then return nil end
+    local nombre = contenedor:GetName()
+    if not nombre then return nil end
+    nombre = nombre .. "Item" .. slot
+    local b = _G[nombre]
+    if not b then
+        b = CreateFrame("Button", nombre, contenedor, "ContainerFrameItemButtonTemplate")
+        b:SetID(slot)
+        b:SetSize(37, 37)
+    end
+    return b
+end
+
+local function ActualizarBotonLlavero(b, slot)
+    if not b then return end
+    local textura, cantidad
+    if GetContainerItemInfo then
+        textura, cantidad = GetContainerItemInfo(KEYRING_ID, slot)
+    end
+    if SetItemButtonTexture then SetItemButtonTexture(b, textura) end
+    if SetItemButtonCount then SetItemButtonCount(b, cantidad or 0) end
+    if b.icon and type(b.icon) ~= "function" and b.icon.SetTexture then
+        b.icon:SetTexture(textura)
+    end
+    if b.Count and type(b.Count) ~= "function" and b.Count.SetText then
+        if cantidad and cantidad > 1 then b.Count:SetText(cantidad) else b.Count:SetText("") end
+    end
+    b.hasItem = textura ~= nil
+end
+
 local function OrganizeItems()
     if not frame:IsVisible() then return end
 
+    if keyringPage then
+        ForceOpenBags({ KEYRING_ID })
+    end
+    ActualizarTecla()
+
     local buttonSize = 41
-    local startY = -45
+    local startY = -(BAG_FLAP_TOP + BAG_FLAP_H + 12)
     local currentY = startY
     local globalSlotIndex = 0
-    local startX = 15
+    local startX = BAG_SIDE_PAD
     local totalLeftHeight = 0
 
+    local lista = keyringPage and { KEYRING_ID } or mainBagsList
+    local enLista = {}
+    for _, bag in ipairs(lista) do enLista[bag] = true end
+
+    for _, bag in ipairs(mainBagsList) do
+        if not enLista[bag] then
+            local lbl = _G["UnifiedBagLabel" .. tostring(bag)]
+            local ic = _G["UnifiedBagIcon" .. tostring(bag)]
+            if lbl then lbl:Hide() end
+            if ic then ic:Hide() end
+            local listaVieja = CapriHighlightRegistry[bag]
+            if listaVieja then
+                for _, btn in ipairs(listaVieja) do btn:Hide() end
+            end
+        end
+    end
+    if not keyringPage then
+        local lbl = _G["UnifiedBagLabelKeyring"]
+        local ic = _G["UnifiedBagIconKeyring"]
+        if lbl then lbl:Hide() end
+        if ic then ic:Hide() end
+        local listaVieja = CapriHighlightRegistry[KEYRING_ID]
+        if listaVieja then
+            for _, btn in ipairs(listaVieja) do btn:Hide() end
+        end
+    end
+
     for _, bag in ipairs(mainBagsList) do CapriHighlightRegistry[bag] = {} end
+    if keyringPage then CapriHighlightRegistry[KEYRING_ID] = {} end
 
     if showSideBags then
         UnifiedPaperDollPanel:Show()
         bagSlotPanel:Show()
         dividerLine:Show()
 
-        UnifiedPaperDollPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", 15, -40)
-        bagSlotPanel:SetPoint("TOPLEFT", UnifiedPaperDollPanel, "BOTTOMLEFT", 0, -5)
-        dividerLine:SetPoint("TOPLEFT", frame, "TOPLEFT", 15 + pdWidth + 10, -35)
+        UnifiedPaperDollPanel:ClearAllPoints()
+        UnifiedPaperDollPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", BAG_SIDE_PAD, startY)
+        bagSlotPanel:ClearAllPoints()
+        bagSlotPanel:SetPoint("TOPLEFT", UnifiedPaperDollPanel, "BOTTOMLEFT", 0, -8)
 
-        startX = 15 + pdWidth + 25
-        totalLeftHeight = 40 + pdHeight + 5 + 45 + 10
+        startX = BAG_SIDE_PAD + pdWidth + 24
+        totalLeftHeight = -startY + pdHeight + 8 + 52 + 8
 
         if showBagTitles then
             UnifiedProfMainPanel:Show()
             UnifiedProfSecPanel:Show()
-            UnifiedProfMainPanel:SetPoint("TOPLEFT", bagSlotPanel, "BOTTOMLEFT", 0, -5)
-            UnifiedProfSecPanel:SetPoint("TOPLEFT", UnifiedProfMainPanel, "BOTTOMLEFT", 0, -5)
-            totalLeftHeight = totalLeftHeight + 90 + 5 + 120 + 5
+            UnifiedProfMainPanel:ClearAllPoints()
+            UnifiedProfMainPanel:SetPoint("TOPLEFT", bagSlotPanel, "BOTTOMLEFT", 0, -8)
+            UnifiedProfSecPanel:ClearAllPoints()
+            UnifiedProfSecPanel:SetPoint("TOPLEFT", UnifiedProfMainPanel, "BOTTOMLEFT", 0, -8)
+            totalLeftHeight = totalLeftHeight + 100 + 8 + 130 + 8
             UpdateProfSlots()
         else
             UnifiedProfMainPanel:Hide()
@@ -770,7 +1460,8 @@ local function OrganizeItems()
 
             bagSlotBtn:SetWidth(36)
             bagSlotBtn:SetHeight(36)
-            bagSlotBtn:SetPoint("LEFT", bagSlotPanel, "LEFT", 10 + (i - 1) * 40, 0)
+            bagSlotBtn:ClearAllPoints()
+            bagSlotBtn:SetPoint("LEFT", bagSlotPanel, "LEFT", 16 + (i - 1) * 38, 0)
             bagSlotBtn:SetFrameLevel(bagSlotPanel:GetFrameLevel() + 1)
 
             if not bagSlotBtn.capriIcon then
@@ -812,6 +1503,13 @@ local function OrganizeItems()
                 end)
 
                 bagSlotBtn:SetScript("OnClick", function(self)
+                    if keyringPage then
+                        keyringPage = false
+                        if CaprimedinaUIDB then CaprimedinaUIDB.showKeyringPage = false end
+                        CerrarLlavero()
+                        OrganizeItems()
+                        return
+                    end
                     if self.capriInvID then
                         if CursorHasItem() then PutItemInBag(self.capriInvID)
                         else PickupBagFromSlot(self.capriInvID) end
@@ -845,16 +1543,15 @@ local function OrganizeItems()
         dividerLine:Hide()
         UnifiedProfMainPanel:Hide()
         UnifiedProfSecPanel:Hide()
-        startX = 15
+        startX = BAG_SIDE_PAD
         totalLeftHeight = 0
     end
 
-    for _, bag in ipairs(mainBagsList) do
+    for _, bag in ipairs(lista) do
         local slots = GetContainerNumSlots(bag)
 
         if bag == KEYRING_ID then
-            local krSize = GetKeyRingSize and GetKeyRingSize() or 32
-            if krSize > 0 then slots = krSize end
+            slots = KR_MAX
         end
 
         local bagContainer = nil
@@ -882,9 +1579,11 @@ local function OrganizeItems()
                 icon:SetWidth(16)
                 icon:SetHeight(16)
                 icon:SetTexture(GetBagIcon(bag))
+                icon:ClearAllPoints()
                 icon:SetPoint("TOPLEFT", frame, "TOPLEFT", startX, currentY + 2)
                 icon:Show()
 
+                label:ClearAllPoints()
                 label:SetPoint("TOPLEFT", frame, "TOPLEFT", startX + 20, currentY)
                 label:SetTextColor(1, 0.8, 0)
                 if bag == 0 then label:SetText("MOCHILA PRINCIPAL")
@@ -896,7 +1595,12 @@ local function OrganizeItems()
                 local localSlotIndex = 0
 
                 for slot = 1, slots do
-                    local itemButton = GetSlotButton(bagContainer, slot, slots)
+                    local itemButton
+                    if bag == KEYRING_ID then
+                        itemButton = CrearBotonLlavero(bagContainer, slot)
+                    else
+                        itemButton = GetSlotButton(bagContainer, slot, slots)
+                    end
                     if itemButton then
                         tinsert(CapriHighlightRegistry[bag], itemButton)
                         itemButton:ClearAllPoints()
@@ -910,6 +1614,9 @@ local function OrganizeItems()
                         itemButton:EnableMouse(true)
                         itemButton:Show()
                         EnhanceSlot(itemButton, bag)
+                        if bag == KEYRING_ID then
+                            ActualizarBotonLlavero(itemButton, slot)
+                        end
                         localSlotIndex = localSlotIndex + 1
                     end
                 end
@@ -921,7 +1628,12 @@ local function OrganizeItems()
                 icon:Hide()
 
                 for slot = 1, slots do
-                    local itemButton = GetSlotButton(bagContainer, slot, slots)
+                    local itemButton
+                    if bag == KEYRING_ID then
+                        itemButton = CrearBotonLlavero(bagContainer, slot)
+                    else
+                        itemButton = GetSlotButton(bagContainer, slot, slots)
+                    end
                     if itemButton then
                         tinsert(CapriHighlightRegistry[bag], itemButton)
                         itemButton:ClearAllPoints()
@@ -935,6 +1647,9 @@ local function OrganizeItems()
                         itemButton:EnableMouse(true)
                         itemButton:Show()
                         EnhanceSlot(itemButton, bag)
+                        if bag == KEYRING_ID then
+                            ActualizarBotonLlavero(itemButton, slot)
+                        end
                         globalSlotIndex = globalSlotIndex + 1
                     end
                 end
@@ -952,14 +1667,13 @@ local function OrganizeItems()
 
     MoneyFrame_Update("UnifiedBagMoneyFrame", GetMoney())
 
-    local totalRightHeight = math.abs(currentY) + 30
-    local finalHeight = math.max(totalLeftHeight, totalRightHeight)
-
-    if showSideBags then dividerLine:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 15 + pdWidth + 10, 15) end
+    local rightHeight = math.abs(currentY) + 15
+    local finalHeight = math.max(totalLeftHeight, rightHeight)
 
     frame:SetScale(currentScale)
-    frame:SetWidth(startX + (currentCols * buttonSize) + 15)
-    frame:SetHeight(finalHeight)
+    frame:SetWidth(startX + (currentCols * buttonSize) + BAG_SIDE_PAD)
+    frame:SetHeight(finalHeight + BAG_BOTTOM_PAD)
+    LayoutBagSkin()
 
     if UnifiedPaperDollModel and UnifiedPaperDollModel:IsVisible() then
         local rot = UnifiedPaperDollModel:GetFacing() or 0
@@ -988,17 +1702,14 @@ local function OrganizeBankItems()
     StripFrameTextures("BankFrame")
 
     local buttonSize = 41
-    local currentY = -40
+    local currentY = -(BANK_FLAP_TOP + BANK_FLAP_H + 12)
     local globalBankSlotIndex = 0
-
-    bankFrame:SetWidth(35 + (bankCols * buttonSize))
-    bankFrame:SetScale(bankScale)
 
     for _, bag in ipairs(bankBagsList) do CapriHighlightRegistry[bag] = {} end
 
     if showBankSideBags then
         bankSlotPanel:Show()
-        local slotY = -12
+        local slotY = -32
 
         for i = 1, 7 do
             local bagID = 4 + i
@@ -1012,7 +1723,8 @@ local function OrganizeBankItems()
                 bagSlotItem:SetParent(bankSlotPanel)
                 bagSlotItem:ClearAllPoints()
                 bagSlotItem:SetPoint("TOP", bankSlotPanel, "TOP", 0, slotY)
-                bagSlotItem:SetScale(0.95)
+                bagSlotItem:SetSize(38, 38)
+                bagSlotItem:SetScale(1)
                 bagSlotItem:SetFrameStrata(currentBagStrata)
                 bagSlotItem:SetFrameLevel(bankSlotPanel:GetFrameLevel() + 2)
                 bagSlotItem:EnableMouse(true)
@@ -1045,7 +1757,6 @@ local function OrganizeBankItems()
                 slotY = slotY - 40
             end
         end
-        bankSlotPanel:SetHeight(math.abs(slotY) + 10)
     else
         bankSlotPanel:Hide()
     end
@@ -1057,16 +1768,19 @@ local function OrganizeBankItems()
 
     if showBankTitles then
         globalBankSlotIndex = 0
-        labelBank:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", 35, currentY)
+        iconBank:SetWidth(16)
+        iconBank:SetHeight(16)
+        iconBank:SetTexture("Interface\\Icons\\Inv_box_02")
+        iconBank:ClearAllPoints()
+        iconBank:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", BANK_SIDE_PAD, currentY + 2)
+        iconBank:Show()
+
+        labelBank:ClearAllPoints()
+        labelBank:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", BANK_SIDE_PAD + 20, currentY)
         labelBank:SetTextColor(1, 0.8, 0)
         labelBank:SetText("BANCO PRINCIPAL")
         labelBank:Show()
 
-        iconBank:SetWidth(16)
-        iconBank:SetHeight(16)
-        iconBank:SetTexture("Interface\\Icons\\Inv_box_02")
-        iconBank:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", 15, currentY + 2)
-        iconBank:Show()
         currentY = currentY - 20
     else
         labelBank:Hide()
@@ -1079,7 +1793,8 @@ local function OrganizeBankItems()
             itemButton:ClearAllPoints()
             local row = math.floor(globalBankSlotIndex / bankCols)
             local col = globalBankSlotIndex % bankCols
-            itemButton:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", 15 + (col * buttonSize), currentY - (row * buttonSize))
+            itemButton:SetPoint("TOPLEFT", bankFrame, "TOPLEFT",
+                BANK_SIDE_PAD + (col * buttonSize), currentY - (row * buttonSize))
             itemButton:SetFrameStrata(currentBagStrata)
             itemButton:SetFrameLevel(bankFrame:GetFrameLevel() + 5)
             itemButton:EnableMouse(true)
@@ -1123,10 +1838,12 @@ local function OrganizeBankItems()
                 icon:SetWidth(16)
                 icon:SetHeight(16)
                 icon:SetTexture(GetBagIcon(bag))
-                icon:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", 15, currentY + 2)
+                icon:ClearAllPoints()
+                icon:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", BANK_SIDE_PAD, currentY + 2)
                 icon:Show()
 
-                label:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", 35, currentY)
+                label:ClearAllPoints()
+                label:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", BANK_SIDE_PAD + 20, currentY)
                 label:SetTextColor(1, 0.8, 0)
                 label:SetText("CONTENIDO DE BOLSA " .. (bag - 4))
                 label:Show()
@@ -1145,7 +1862,8 @@ local function OrganizeBankItems()
                     local row = math.floor(globalBankSlotIndex / bankCols)
                     local col = globalBankSlotIndex % bankCols
 
-                    itemButton:SetPoint("TOPLEFT", bankFrame, "TOPLEFT", 15 + (col * buttonSize), currentY - (row * buttonSize))
+                    itemButton:SetPoint("TOPLEFT", bankFrame, "TOPLEFT",
+                        BANK_SIDE_PAD + (col * buttonSize), currentY - (row * buttonSize))
                     itemButton:SetFrameStrata(currentBagStrata)
                     itemButton:SetFrameLevel(bankFrame:GetFrameLevel() + 5)
                     itemButton:EnableMouse(true)
@@ -1170,47 +1888,51 @@ local function OrganizeBankItems()
         currentY = currentY - (totalRows * buttonSize) - 15
     end
 
-    bankFrame:SetHeight(math.abs(currentY) + 50)
+    bankFrame:SetWidth((BANK_SIDE_PAD * 2) + (bankCols * buttonSize))
+    bankFrame:SetHeight(math.abs(currentY) + BANK_BOTTOM_PAD)
+    bankFrame:SetScale(bankScale)
+    LayoutBankSkin()
 
     local purchaseBtn = _G["BankFramePurchaseButton"]
-    local costText = _G["UnifiedBankCostText"] or bankFrame:CreateFontString("UnifiedBankCostText", "OVERLAY")
+    local costText = _G["UnifiedBankCostText"]
+    if not costText then
+        costText = bankPlaque:CreateFontString("UnifiedBankCostText", "OVERLAY")
+    elseif costText.SetParent then
+        costText:SetParent(bankPlaque)
+    end
+    local anchoBanco = bankFrame:GetWidth() or 0
 
-    if costText.SetFont then C.SetOutlineFont(costText, 12) end
+    if costText.SetFont then C.SetOutlineFont(costText, anchoBanco < 300 and 11 or 12) end
 
     if purchaseBtn then
-        purchaseBtn:SetParent(bankFrame)
+        purchaseBtn:SetParent(bankPlaque)
         purchaseBtn:ClearAllPoints()
-        purchaseBtn:SetPoint("BOTTOM", bankFrame, "BOTTOM", -40, 15)
+        purchaseBtn:SetPoint("LEFT", bankPlaque, "LEFT", anchoBanco < 300 and 10 or 14, 0)
         purchaseBtn:SetFrameStrata(currentBagStrata)
-        purchaseBtn:SetFrameLevel(bankFrame:GetFrameLevel() + 15)
+        purchaseBtn:SetFrameLevel(bankPlaque:GetFrameLevel() + 2)
         purchaseBtn:EnableMouse(true)
 
         local numSlots, full = GetNumBankSlots()
 
         if full then
             purchaseBtn:Hide()
+            if bankCostMoney then bankCostMoney:Hide() end
             costText:SetText("Ranuras al maximo")
             costText:SetTextColor(0, 1, 0)
             costText:ClearAllPoints()
-            costText:SetPoint("BOTTOM", bankFrame, "BOTTOM", 0, 18)
+            costText:SetPoint("CENTER", bankPlaque, "CENTER", 0, 0)
+            costText:Show()
         else
             purchaseBtn:Show()
+            costText:Hide()
             local cost = GetBankSlotCost(numSlots)
-            local g = math.floor(cost / 10000)
-            local s = math.floor((cost % 10000) / 100)
-            local c = cost % 100
-
-            local costString = "Costo: "
-            if g > 0 then costString = costString .. g .. "g " end
-            if s > 0 then costString = costString .. s .. "s " end
-            costString = costString .. c .. "c"
-
-            costText:SetText(costString)
-            costText:SetTextColor(1, 0.8, 0)
-            costText:ClearAllPoints()
-            costText:SetPoint("LEFT", purchaseBtn, "RIGHT", 10, 0)
+            if bankCostMoney then
+                bankCostMoney:ClearAllPoints()
+                bankCostMoney:SetPoint("LEFT", purchaseBtn, "RIGHT", anchoBanco < 300 and 6 or 10, 0)
+                MoneyFrame_Update("UnifiedBankCostMoney", cost)
+                bankCostMoney:Show()
+            end
         end
-        costText:Show()
     end
 end
 
@@ -1387,11 +2109,14 @@ btnLockBank = CreateToggleRow(CapriBankConfigFrame, -135, "Posicion: ", function
     if isBankLocked then self:SetText("|cffff0000Mantener|r") else self:SetText("|cff00ff00Libre|r") end
 end)
 
-local close = C.CreateStyledButton(frame, "X", 40, 26, true)
-close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -8, -8)
+local close = C.CreateStyledButton(frame, "X", 26, 26, true)
+close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -18, -10)
+close:SetFrameLevel(frame:GetFrameLevel() + 4)
 close:SetScript("OnClick", function() CloseAllBags() end)
+StyleLeatherButton(close)
 
 local gearBag = CreateFrame("Button", nil, frame)
+gearBag:SetFrameLevel(frame:GetFrameLevel() + 4)
 gearBag:SetWidth(18)
 gearBag:SetHeight(18)
 gearBag:SetNormalTexture("Interface\\Icons\\Trade_Engineering")
@@ -1402,11 +2127,43 @@ gearBag:SetScript("OnClick", function()
     else CapriBagConfigFrame:Show() end
 end)
 
-local closeBank = C.CreateStyledButton(bankFrame, "X", 40, 26, true)
-closeBank:SetPoint("TOPRIGHT", bankFrame, "TOPRIGHT", -8, -8)
+btnKeyring = CreateFrame("Button", "UnifiedBagKeyringButton", frame)
+btnKeyring:SetSize(22, 22)
+btnKeyring:SetFrameLevel(frame:GetFrameLevel() + 4)
+btnKeyring:SetNormalTexture("Interface\\Icons\\INV_Misc_Key_03")
+btnKeyring:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+btnKeyring:SetPoint("RIGHT", gearBag, "LEFT", -4, 0)
+btnKeyring:SetScript("OnClick", function()
+    keyringPage = not keyringPage
+    if CaprimedinaUIDB then CaprimedinaUIDB.showKeyringPage = keyringPage end
+    if keyringPage then
+        ForceOpenBags({ KEYRING_ID })
+    else
+        CerrarLlavero()
+    end
+    ActualizarTecla()
+    if frame:IsVisible() then
+        OrganizeItems()
+        if RaiseBagWindow then RaiseBagWindow() end
+    end
+end)
+btnKeyring:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:SetText("Llavero", 1, 0.82, 0.2)
+    GameTooltip:AddLine(keyringPage and "Volver a las bolsas." or "Ver las ranuras del llavero.", 1, 1, 1)
+    GameTooltip:Show()
+end)
+btnKeyring:SetScript("OnLeave", function() GameTooltip:Hide() end)
+ActualizarTecla()
+
+local closeBank = C.CreateStyledButton(bankFrame, "X", 26, 26, true)
+closeBank:SetPoint("TOPRIGHT", bankFrame, "TOPRIGHT", -18, -10)
+closeBank:SetFrameLevel(bankFrame:GetFrameLevel() + 4)
 closeBank:SetScript("OnClick", function() bankFrame:Hide() end)
+StyleLeatherButton(closeBank)
 
 local gearBank = CreateFrame("Button", nil, bankFrame)
+gearBank:SetFrameLevel(bankFrame:GetFrameLevel() + 4)
 gearBank:SetWidth(18)
 gearBank:SetHeight(18)
 gearBank:SetNormalTexture("Interface\\Icons\\Trade_Engineering")
@@ -1433,11 +2190,16 @@ end
 
 RaiseBagWindow = function()
     local members = {
-        { frame, 0 }, { bagSlotPanel, 1 }, { btnToggleSideBags, 2 }, { close, 2 },
-        { gearBag, 2 }, { moneyFrame, 2 }, { UnifiedPaperDollPanel, 1 },
-        { UnifiedPaperDollModel, 2 }, { dividerLine, 1 }, { UnifiedProfMainPanel, 1 },
-        { UnifiedProfSecPanel, 1 },
+        { frame, 0 }, { bagSlotPanel, 1 }, { bagFlap, 2 }, { bagMoneyPlaque, 3 },
+        { btnToggleSideBags, 4 }, { close, 4 }, { gearBag, 4 }, { btnKeyring, 4 }, { moneyFrame, 4 },
+        { UnifiedPaperDollPanel, 1 }, { UnifiedPaperDollModel, 2 }, { dividerLine, 1 },
+        { UnifiedProfMainPanel, 1 }, { UnifiedProfSecPanel, 1 },
     }
+
+    for i = 1, 5 do
+        local s = UnifiedProfSlots[i]
+        if s and s.btn then table.insert(members, { s.btn, 3 }) end
+    end
 
     for _, slotName in ipairs(equipSlots) do
         local slotId = GetInventorySlotInfo(slotName)
@@ -1457,18 +2219,23 @@ RaiseBagWindow = function()
         end
     end
 
+    local listaKr = CapriHighlightRegistry[KEYRING_ID]
+    if listaKr then
+        for _, b in ipairs(listaKr) do table.insert(members, { b, 3 }) end
+    end
+
     RaiseFamily(members)
     SetBagStrata("DIALOG")
 end
 
 RaiseBankWindow = function()
     local members = {
-        { bankFrame, 0 }, { bankSlotPanel, 1 }, { btnToggleBankSideBags, 2 },
-        { closeBank, 2 }, { gearBank, 2 },
+        { bankFrame, 0 }, { bankSlotPanel, 1 }, { bankFlap, 2 }, { bankPlaque, 3 },
+        { btnToggleBankSideBags, 4 }, { closeBank, 4 }, { gearBank, 4 }, { bankCostMoney, 4 },
     }
 
     local pb = _G["BankFramePurchaseButton"]
-    if pb then table.insert(members, { pb, 2 }) end
+    if pb then table.insert(members, { pb, 5 }) end
 
     for i = 1, 7 do
         local b = _G["BankFrameBag" .. i]
@@ -1598,6 +2365,15 @@ end
 local oldUpdate = ContainerFrame_Update
 ContainerFrame_Update = function(self)
     if oldUpdate then oldUpdate(self) end
+    if keyringPage and self and self.GetID and self:GetID() == KEYRING_ID then
+        local nombre = self:GetName()
+        if nombre then
+            for slot = 1, KR_MAX do
+                local b = _G[nombre .. "Item" .. slot]
+                if b then b:Show() end
+            end
+        end
+    end
 end
 
 local eventHandler = CreateFrame("Frame")
@@ -1622,6 +2398,8 @@ eventHandler:SetScript("OnEvent", function(self, event)
         if CaprimedinaUIDB.showBagTitles ~= nil then showBagTitles = CaprimedinaUIDB.showBagTitles end
         if CaprimedinaUIDB.isBagLocked ~= nil then isBagLocked = CaprimedinaUIDB.isBagLocked end
         if CaprimedinaUIDB.showSideBags ~= nil then showSideBags = CaprimedinaUIDB.showSideBags end
+        keyringPage = false
+        ActualizarTecla()
 
         if CaprimedinaUIDB.bagPos then
             frame:ClearAllPoints()

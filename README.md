@@ -6,7 +6,7 @@
 
 ![Cliente](https://img.shields.io/badge/Cliente-WoW%203.3.5a%20WotLK-0b6fa4?style=for-the-badge)
 ![Interfaz](https://img.shields.io/badge/Interface-30300-1f6feb?style=for-the-badge)
-![Versión](https://img.shields.io/badge/Versi%C3%B3n-5.0.0-2ea043?style=for-the-badge)
+![Versión](https://img.shields.io/badge/Versi%C3%B3n-5.1.0-2ea043?style=for-the-badge)
 ![Licencia](https://img.shields.io/badge/Licencia-MIT-yellow?style=for-the-badge)
 ![Plataforma](https://img.shields.io/badge/Android%20%2F%20Winlator-3ddc84?style=for-the-badge)
 
@@ -56,7 +56,7 @@ CaprimedinaUI reemplaza y amplía la interfaz original de Wrath of the Lich King
 
 ### HUD e interfaz
 
-- **Bolsas y banco propios**, con escala, columnas, títulos y bloqueo independientes.
+- **Bolsas y banco propios**, con escala, columnas, títulos y bloqueo independientes. Banco y mochila tienen diseño de bolsa de cuero con solapa, asa, costuras y remaches; la mochila enmarca además la ventana de vestuario y los paneles de profesión.
 - **Barras de acción curvas** con asignación de teclas integrada.
 - **Bolitas de Jugador y Objetivo** rediseñadas, arrastrables y escalables (arrancan a 1.50 para pantallas pequeñas).
 - **Minimapa** escalable; los buffs y debuffs del jugador crecen y se mueven con él.
@@ -75,6 +75,12 @@ Capturas reales del addon en juego (cliente 3.3.5a en Winlator/Android).
 | ![Captura 3](docs/capturas/captura-03.jpg) | ![Captura 4](docs/capturas/captura-04.jpg) |
 | ![Captura 5](docs/capturas/captura-05.jpg) | ![Captura 6](docs/capturas/captura-06.jpg) |
 | ![Captura 7](docs/capturas/captura-07.jpg) | ![Captura 8](docs/capturas/captura-08.jpg) |
+
+### Mochila y banco (5.1.0)
+
+| Mochila | Banco |
+|---|---|
+| ![Vista previa de la mochila](docs/vista_previa_mochila.png) | ![Vista previa del banco](docs/vista_previa_banco.png) |
 
 
 ## 📦 Instalación
@@ -160,7 +166,7 @@ CaprimedinaUI/
 │   └── config.lua         # Menú de configuración y botón del minimapa
 ├── modulos/
 │   ├── barra.lua          # Barras de acción curvas y bindings
-│   ├── bag.lua            # Bolsas y banco personalizados
+│   ├── bag.lua            # Bolsas y banco personalizados (piel de bolsa en ambos)
 │   ├── chat.lua           # Comportamiento del chat
 │   ├── escala.lua         # Escala de interfaz
 │   ├── SmartClick.lua     # Clic inteligente y cámara automática
@@ -170,7 +176,7 @@ CaprimedinaUI/
 ├── botones/
 │   ├── botones.lua        # Botones Atacar / Objetivo / Saltar
 │   └── dpad.lua           # Joystick virtual
-└── texturas/              # Anillos, discos y brillos (TGA/BLP)
+└── texturas/              # Anillos, discos, brillos y bolsas (banco/mochila)
 ```
 
 ## ✅ Compatibilidad
@@ -195,7 +201,7 @@ Las ideas y los reportes son bienvenidos. Antes de abrir un cambio, lee [CONTRIB
 
 ## 🙏 Créditos
 
-- **Texturas** de anillos, discos y brillos: creación propia de **Caprimedina**.
+- **Texturas** de anillos, discos, brillos y de las bolsas del banco y la mochila: creación propia de **Caprimedina**.
 - Interfaz base y plantillas: **Blizzard Entertainment**.
 - Desarrollo y ajustes para Android: **Caprimedina**.
 

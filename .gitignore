@@ -23,3 +23,10 @@ _dev/
 # Datos locales del juego
 WTF/
 Logs/
+
+# Herramientas de desarrollo
+__pycache__/
+*.pyc
+
+# Proyectos auxiliares (no forman parte del addon)
+winlator-app/

@@ -4,7 +4,7 @@
 ## Notes: Interfaz tactil de Caprimedina para jugar World of Warcraft 3.3.5a en Android con Winlator.
 ## Notes-esES: Interfaz tactil de Caprimedina para jugar World of Warcraft 3.3.5a en Android con Winlator.
 ## Author: Caprimedina
-## Version: 5.0.0
+## Version: 5.1.0
 ## SavedVariables: CaprimedinaUIDB
 ## SavedVariablesPerCharacter: SmartClickDB
 ## X-Category: Interface Enhancements
